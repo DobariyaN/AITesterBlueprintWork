@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG Explained: Retrieval-Augmented Generation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #F1F5F7;
+    --surface: #FFFFFF;
+    --ink: #15212A;
+    --muted: #55666F;
+    --line: #D3DDE3;
+
+    --retr: #0E6A6A;   --retr-soft: #DDF0EF;
+    --aug:  #8A5300;   --aug-soft:  #F8EAD0;
+    --gen:  #3A3F9C;   --gen-soft:  #E4E5F7;
+
+    --code-bg: #0F1E27;
+    --code-ink: #DCE8EE;
+    --code-muted: #7F97A4;
+
+    --display: "Bricolage Grotesque", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0E171C;
+      --surface: #15222A;
+      --ink: #E4EDF1;
+      --muted: #96A8B2;
+      --line: #263843;
+
+      --retr: #5CC7C4;  --retr-soft: #12302F;
+      --aug:  #E6B45A;  --aug-soft:  #3A2C10;
+      --gen:  #9EA3F0;  --gen-soft:  #21244D;
+
+      --code-bg: #0A1216;
+    }
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 1.5rem; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 1.125rem;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: inherit; }
+  :focus-visible { outline: 3px solid var(--retr); outline-offset: 3px; border-radius: 4px; }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    padding: clamp(2.5rem, 7vw, 5.5rem) clamp(1.25rem, 5vw, 4rem) clamp(2rem, 5vw, 3.5rem);
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .hero-inner { max-width: 1120px; margin: 0 auto; }
+  .hero h1 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(2.3rem, 6.5vw, 4.6rem);
+    line-height: 1.02;
+    letter-spacing: -0.02em;
+    margin: 0 0 1.25rem;
+    max-width: 16ch;
+  }
+  .hero .lede {
+    max-width: 62ch;
+    font-size: clamp(1.1rem, 2vw, 1.3rem);
+    color: var(--ink);
+    margin: 0 0 2.25rem;
+  }
+  .hero .lede strong { font-weight: 600; }
+
+  /* the R-A-G colour key runs through the whole page */
+  .r { color: var(--retr); font-weight: 600; }
+  .a { color: var(--aug);  font-weight: 600; }
+  .g { color: var(--gen);  font-weight: 600; }
+
+  /* ---------- Flow chips ---------- */
+  .flow {
+    list-style: none; padding: 0; margin: 1.25rem 0;
+    display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .35rem;
+  }
+  .flow li { display: inline-flex; align-items: center; gap: .35rem; }
+  .flow li:not(:last-child)::after {
+    content: "›"; color: var(--muted); font-family: var(--display); font-size: 1.3rem; line-height: 1;
+  }
+  .chip {
+    font-family: var(--display);
+    font-weight: 500;
+    font-size: .98rem;
+    line-height: 1.2;
+    padding: .5rem .8rem;
+    border-radius: 8px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    white-space: nowrap;
+  }
+  .chip.r { background: var(--retr-soft); border-color: var(--retr); color: var(--retr); }
+  .chip.a { background: var(--aug-soft);  border-color: var(--aug);  color: var(--aug); }
+  .chip.g { background: var(--gen-soft);  border-color: var(--gen);  color: var(--gen); }
+  .chip.solid { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+
+  .hero .flow { margin-bottom: 0; }
+  .hero .chip { font-size: clamp(.9rem, 1.6vw, 1.1rem); padding: .6rem .95rem; }
+
+  /* ---------- Layout ---------- */
+  .layout {
+    max-width: 1120px; margin: 0 auto;
+    padding: clamp(1.5rem, 4vw, 3rem) clamp(1.25rem, 5vw, 4rem) 5rem;
+    display: grid;
+    grid-template-columns: 220px minmax(0, 1fr);
+    gap: clamp(2rem, 5vw, 4.5rem);
+    align-items: start;
+  }
+
+  nav.toc {
+    position: sticky; top: 1.5rem;
+    font-family: var(--display);
+    font-size: .95rem;
+    max-height: calc(100vh - 3rem);
+    overflow-y: auto;
+  }
+  nav.toc h2 {
+    font-size: 1rem; font-weight: 700; margin: 0 0 .75rem; letter-spacing: 0;
+  }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; border-left: 2px solid var(--line); }
+  nav.toc li a {
+    display: flex; gap: .6rem;
+    padding: .32rem .75rem;
+    margin-left: -2px;
+    border-left: 2px solid transparent;
+    color: var(--muted);
+    text-decoration: none;
+    line-height: 1.3;
+  }
+  nav.toc li a .n { min-width: 1.4rem; font-variant-numeric: tabular-nums; }
+  nav.toc li a:hover { color: var(--ink); }
+  nav.toc li a[aria-current="true"] { color: var(--retr); border-left-color: var(--retr); font-weight: 700; }
+
+  main { min-width: 0; max-width: 46rem; }
+
+  section { margin: 0 0 4rem; }
+  section > h2 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: clamp(1.6rem, 3.2vw, 2.1rem);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    margin: 0 0 1.25rem;
+    display: flex; gap: .85rem; align-items: baseline;
+  }
+  section > h2 .num {
+    font-family: var(--mono);
+    font-weight: 500;
+    font-size: .6em;
+    color: var(--muted);
+    min-width: 2ch;
+  }
+  h3 { font-family: var(--display); font-size: 1.3rem; margin: 2rem 0 .5rem; letter-spacing: -0.005em; }
+  h4 { font-family: var(--display); font-size: 1.05rem; margin: 1.5rem 0 .4rem; }
+
+  p { margin: 0 0 1.1rem; max-width: 68ch; }
+  ul { margin: 0 0 1.25rem; padding-left: 1.3rem; }
+  li { margin-bottom: .3rem; }
+  li::marker { color: var(--muted); }
+
+  /* ---------- Callouts & quotes ---------- */
+  blockquote.ask {
+    margin: 1.5rem 0;
+    padding: 1rem 1.25rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 4px solid var(--gen);
+    border-radius: 0 10px 10px 0;
+    font-style: italic;
+    max-width: 62ch;
+  }
+  blockquote.ask p { margin: 0; }
+  .label {
+    display: block;
+    font-family: var(--display);
+    font-style: normal;
+    font-weight: 700;
+    font-size: .9rem;
+    color: var(--muted);
+    margin-bottom: .3rem;
+  }
+
+  /* ---------- Panels ---------- */
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 1.25rem 1.4rem;
+    margin: 1.25rem 0 1.75rem;
+  }
+  .panel > :last-child { margin-bottom: 0; }
+  .panel-title { font-family: var(--display); font-weight: 700; font-size: 1.02rem; margin: 0 0 .75rem; }
+
+  .tags { list-style: none; padding: 0; margin: 0 0 1.5rem; display: flex; flex-wrap: wrap; gap: .45rem; }
+  .tags li {
+    margin: 0;
+    font-family: var(--display); font-size: .92rem; font-weight: 500;
+    padding: .3rem .7rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+  }
+
+  /* vertical flow */
+  .vflow { list-style: none; margin: 1.25rem 0 1.75rem; padding: 0 0 0 1.4rem; position: relative; }
+  .vflow::before { content: ""; position: absolute; left: .42rem; top: .7rem; bottom: .7rem; width: 2px; background: var(--line); }
+  .vflow li { position: relative; margin: 0; padding: .32rem 0; font-family: var(--display); font-weight: 500; font-size: 1.02rem; }
+  .vflow li::before {
+    content: ""; position: absolute; left: -1.3rem; top: 50%; transform: translateY(-50%);
+    width: .8rem; height: .8rem; border-radius: 50%;
+    background: var(--surface); border: 2px solid var(--muted);
+  }
+  .vflow li.end::before { background: var(--retr); border-color: var(--retr); }
+  .vflow li.r::before { border-color: var(--retr); background: var(--retr); }
+  .vflow li.a::before { border-color: var(--aug);  background: var(--aug); }
+  .vflow li.g::before { border-color: var(--gen);  background: var(--gen); }
+  .vflow li small { display: block; font-family: var(--body); font-weight: 400; font-size: .95rem; color: var(--muted); }
+
+  /* side-by-side */
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1.25rem 0 1.75rem; }
+  .pair .panel { margin: 0; }
+  .pair .vflow { margin-bottom: 0; }
+
+  /* chunk cards */
+  .chunks { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0 1.5rem; }
+  .chunk { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: .9rem 1.1rem; }
+  .chunk .label { margin-bottom: .4rem; }
+  .chunk p { margin: 0; font-family: var(--mono); font-size: .88rem; line-height: 1.55; }
+
+  /* ---------- Code ---------- */
+  pre {
+    margin: 1.25rem 0 1.75rem;
+    padding: 1.1rem 1.25rem;
+    background: var(--code-bg);
+    color: var(--code-ink);
+    border-radius: 10px;
+    overflow-x: auto;
+    font-family: var(--mono);
+    font-size: .86rem;
+    line-height: 1.6;
+    tab-size: 2;
+  }
+  pre .cm { color: var(--code-muted); }
+  code {
+    font-family: var(--mono);
+    font-size: .88em;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    padding: .08em .35em;
+    border-radius: 5px;
+  }
+  pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+
+  /* ---------- Tables ---------- */
+  .table-wrap { overflow-x: auto; margin: 1.25rem 0 1.75rem; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+  table { width: 100%; border-collapse: collapse; font-family: var(--display); font-size: 1rem; }
+  th, td { text-align: left; padding: .7rem 1rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 700; background: var(--paper); font-size: .95rem; }
+  tr:last-child td { border-bottom: 0; }
+  td:first-child { font-weight: 500; white-space: nowrap; }
+
+  /* ---------- Figures ---------- */
+  figure { margin: 1.5rem 0 2rem; }
+  figure svg { width: 100%; height: auto; display: block; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+  figcaption { font-size: .95rem; color: var(--muted); margin-top: .6rem; max-width: 62ch; }
+
+  /* ---------- Architecture ---------- */
+  .lanes { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin: 1.5rem 0 2rem; }
+  .lane { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 1.25rem 1.4rem 1rem; }
+  .lane h3 { margin: 0 0 .25rem; font-size: 1.15rem; }
+  .lane .sub { color: var(--muted); font-size: .95rem; margin: 0 0 .5rem; }
+  .lane .vflow { margin-bottom: .5rem; }
+  .lane.query { border-top: 4px solid var(--retr); }
+  .lane.ingest { border-top: 4px solid var(--muted); }
+
+  /* recap */
+  .recap { list-style: none; padding: 0; margin: 1.25rem 0 0; display: grid; gap: .6rem; }
+  .recap li {
+    margin: 0; display: grid; grid-template-columns: 9.5rem 1fr; gap: 1rem; align-items: baseline;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: .75rem 1.1rem;
+  }
+  .recap strong { font-family: var(--display); font-size: 1.05rem; }
+
+  footer.end { max-width: 1120px; margin: 0 auto; padding: 0 clamp(1.25rem, 5vw, 4rem) 3rem; color: var(--muted); font-size: .9rem; font-family: var(--display); }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; gap: 1.5rem; }
+    nav.toc { position: static; max-height: none; }
+    nav.toc ol { columns: 2; column-gap: 1.5rem; border-left: 0; }
+    nav.toc li { break-inside: avoid; }
+    nav.toc li a { border-left: 0; padding-left: 0; margin-left: 0; }
+    nav.toc li a[aria-current="true"] { border-left: 0; }
+  }
+  @media (max-width: 640px) {
+    body { font-size: 1.05rem; }
+    .pair, .chunks, .lanes { grid-template-columns: 1fr; }
+    .recap li { grid-template-columns: 1fr; gap: .1rem; }
+    nav.toc ol { columns: 1; }
+    .chip { white-space: normal; }
+  }
+
+  @media print {
+    nav.toc { display: none; }
+    .layout { display: block; }
+    body { background: #fff; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <h1>How RAG answers from your own documents</h1>
+    <p class="lede">RAG stands for <strong>Retrieval-Augmented Generation</strong>. It is a way to make an AI model answer questions using your own documents, databases, PDFs, websites, test cases, product documentation, or other knowledge instead of relying only on what the model learned during training.</p>
+
+    <ol class="flow" aria-label="A simple RAG flow">
+      <li><span class="chip">Documents</span></li>
+      <li><span class="chip">Ingestion</span></li>
+      <li><span class="chip">Embeddings</span></li>
+      <li><span class="chip">Vector Database</span></li>
+      <li><span class="chip r">Retrieval</span></li>
+      <li><span class="chip a">Augmentation</span></li>
+      <li><span class="chip g">LLM Generation</span></li>
+      <li><span class="chip solid">Answer</span></li>
+    </ol>
+  </div>
+</header>
+
+<div class="layout">
+
+  <nav class="toc" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#ingestion"><span class="n">1</span>Ingestion</a></li>
+      <li><a href="#retrieval"><span class="n">2</span>Retrieval</a></li>
+      <li><a href="#augmentation"><span class="n">3</span>Augmentation</a></li>
+      <li><a href="#generation"><span class="n">4</span>Generation</a></li>
+      <li><a href="#embedding"><span class="n">5</span>Embeddings</a></li>
+      <li><a href="#embedding-types"><span class="n">6</span>Types of embeddings</a></li>
+      <li><a href="#free-vs-paid"><span class="n">7</span>Free vs paid embeddings</a></li>
+      <li><a href="#vector-db"><span class="n">8</span>Vector databases</a></li>
+      <li><a href="#stored"><span class="n">9</span>What gets stored</a></li>
+      <li><a href="#db-types"><span class="n">10</span>Types of vector databases</a></li>
+      <li><a href="#open-source-db"><span class="n">11</span>Free / open-source</a></li>
+      <li><a href="#managed-db"><span class="n">12</span>Paid / managed</a></li>
+      <li><a href="#architecture"><span class="n">13</span>Complete architecture</a></li>
+      <li><a href="#recap"><span class="n">&nbsp;</span>Quick recap</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <section id="intro-example" aria-label="Example">
+      <p>For example, imagine you have 500 QA documents containing test cases, bug reports, API documentation, and regression checklists. You ask:</p>
+      <blockquote class="ask"><p>“What regression tests should I run for the payment module?”</p></blockquote>
+      <p>Instead of guessing, a RAG system searches your documents, finds the relevant payment-related information, gives that context to the LLM, and generates an answer based on it.</p>
+    </section>
+
+    <!-- 1 -->
+    <section id="ingestion">
+      <h2><span class="num">1</span>What is Ingestion?</h2>
+      <p>Ingestion means preparing your data so the RAG system can search it later.</p>
+      <p>Suppose you have:</p>
+      <ul class="tags">
+        <li>PDFs</li><li>Word documents</li><li>HTML pages</li><li>Jira tickets</li>
+        <li>Test cases</li><li>API documentation</li><li>GitHub files</li><li>Database records</li>
+      </ul>
+      <p>The ingestion pipeline usually does:</p>
+      <ol class="vflow">
+        <li>Load document</li>
+        <li>Extract text</li>
+        <li>Clean text</li>
+        <li>Split into chunks</li>
+        <li>Create embeddings</li>
+        <li>Store vectors + metadata</li>
+        <li class="end">Vector Database</li>
+      </ol>
+
+      <h3>Example</h3>
+      <p>Original document:</p>
+      <blockquote class="ask"><p>Login functionality allows users to authenticate using email and password. After five failed login attempts the account is temporarily locked.</p></blockquote>
+      <p>It might be divided into chunks such as:</p>
+      <div class="chunks">
+        <div class="chunk">
+          <span class="label">Chunk 1</span>
+          <p>Login functionality allows users to authenticate using email and password.</p>
+        </div>
+        <div class="chunk">
+          <span class="label">Chunk 2</span>
+          <p>After five failed login attempts, the account is temporarily locked.</p>
+        </div>
+      </div>
+      <p>Each chunk gets converted into an embedding.</p>
+    </section>
+
+    <!-- 2 -->
+    <section id="retrieval">
+      <h2><span class="num">2</span>What is Retrieval?</h2>
+      <p><span class="r">Retrieval</span> means finding the most relevant information for the user's question.</p>
+      <p>Suppose the user asks:</p>
+      <blockquote class="ask"><p>“When does the account get locked?”</p></blockquote>
+      <p>The system creates an embedding for that question and searches the vector database.</p>
+      <p>It might retrieve:</p>
+      <div class="chunks" style="grid-template-columns:1fr;">
+        <div class="chunk">
+          <span class="label">Chunk</span>
+          <p>“After five failed login attempts, the account is temporarily locked.”</p>
+        </div>
+      </div>
+      <p>That is the retrieval stage.</p>
+      <p>Typically the system retrieves something like:</p>
+      <ul class="tags">
+        <li>Top 3 chunks</li><li>Top 5 chunks</li><li>Top 10 chunks</li>
+      </ul>
+      <p>depending on the application.</p>
+    </section>
+
+    <!-- 3 -->
+    <section id="augmentation">
+      <h2><span class="num">3</span>What is Augmentation?</h2>
+      <p>This is where the word <span class="a">Augmented</span> in RAG comes from.</p>
+      <p>The retrieved information is inserted into the prompt sent to the LLM.</p>
+
+      <div class="pair">
+        <div class="panel">
+          <p class="panel-title">Without RAG</p>
+          <ol class="vflow">
+            <li>User Question</li>
+            <li>LLM</li>
+            <li class="end">Answer</li>
+          </ol>
+        </div>
+        <div class="panel">
+          <p class="panel-title">With RAG</p>
+          <ol class="vflow">
+            <li>User Question</li>
+            <li class="r">Retrieve relevant documents</li>
+            <li class="a">Add documents to prompt</li>
+            <li>LLM</li>
+            <li class="end">Answer</li>
+          </ol>
+        </div>
+      </div>
+
+      <p>For example:</p>
+<pre><code>SYSTEM PROMPT:
+
+Use the following company documentation
+to answer the question.
+
+Context:
+After five failed login attempts,
+the account is temporarily locked.
+
+Question:
+When does the account get locked?</code></pre>
+      <p>This extra context is the augmentation.</p>
+    </section>
+
+    <!-- 4 -->
+    <section id="generation">
+      <h2><span class="num">4</span>What is Generation?</h2>
+      <p><span class="g">Generation</span> is when the LLM produces the final response.</p>
+      <p>Examples of generators include models such as:</p>
+      <ul class="tags">
+        <li>GPT models</li><li>Claude</li><li>Gemini</li><li>Llama</li><li>Mistral</li><li>Qwen</li><li>DeepSeek</li>
+      </ul>
+      <p>Using the retrieved context, the model might answer:</p>
+      <blockquote class="ask"><p>The account is temporarily locked after five failed login attempts.</p></blockquote>
+      <p>Therefore:</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Stage</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><span class="r">Retrieval</span></td><td>Find information</td></tr>
+            <tr><td><span class="a">Augmentation</span></td><td>Add information to the prompt</td></tr>
+            <tr><td><span class="g">Generation</span></td><td>LLM writes the answer</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section id="embedding">
+      <h2><span class="num">5</span>What is an Embedding?</h2>
+      <p>An embedding is a numerical representation of meaning.</p>
+      <p>For example, <code>"Login failed"</code> might be converted into something conceptually like:</p>
+<pre><code>[0.21, -0.56, 0.81, 0.12, ...]</code></pre>
+      <p>A real embedding can contain hundreds or thousands of numbers.</p>
+      <p>For example:</p>
+      <ol class="flow" aria-label="Text to vector">
+        <li><span class="chip">Text: “User cannot login”</span></li>
+        <li><span class="chip">Embedding Model</span></li>
+        <li><span class="chip r">Vector</span></li>
+      </ol>
+<pre><code>[0.12, 0.78, -0.33, 0.51, ...]</code></pre>
+
+      <h3>Why do this?</h3>
+      <p>Because computers can mathematically compare vectors.</p>
+      <p>For example, “Login failed” and “User cannot sign in” use different words but have similar meanings. Their vectors might therefore be located close together.</p>
+      <p>Conceptually:</p>
+
+      <figure>
+        <svg viewBox="0 0 560 240" role="img" aria-labelledby="sem-t sem-d">
+          <title id="sem-t">Semantic space</title>
+          <desc id="sem-d">Two login sentences sit close together. A banana recipe sits far away from them.</desc>
+          <ellipse cx="190" cy="105" rx="130" ry="66" fill="var(--retr-soft)" stroke="var(--retr)" stroke-width="1.5" stroke-dasharray="5 4"/>
+          <line x1="150" y1="130" x2="215" y2="80" stroke="var(--retr)" stroke-width="1.5"/>
+          <circle cx="215" cy="80" r="8" fill="var(--retr)"/>
+          <circle cx="150" cy="130" r="8" fill="var(--retr)"/>
+          <text x="230" y="70" font-family="Bricolage Grotesque, Segoe UI, sans-serif" font-size="16" fill="var(--ink)">User cannot sign in</text>
+          <text x="40" y="160" font-family="Bricolage Grotesque, Segoe UI, sans-serif" font-size="16" fill="var(--ink)">Login failed</text>
+          <circle cx="440" cy="195" r="8" fill="var(--muted)"/>
+          <text x="352" y="222" font-family="Bricolage Grotesque, Segoe UI, sans-serif" font-size="16" fill="var(--ink)">Banana recipe</text>
+        </svg>
+        <figcaption>The login sentences are close together because they are semantically related.</figcaption>
+      </figure>
+    </section>
+
+    <!-- 6 -->
+    <section id="embedding-types">
+      <h2><span class="num">6</span>Main types of embeddings</h2>
+      <p>There isn't a fixed number of embedding types. Embeddings can be classified in several ways.</p>
+      <p>A useful classification is:</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Embedding type</th><th>Used for</th></tr></thead>
+          <tbody>
+            <tr><td>Text embeddings</td><td>Documents, questions, articles</td></tr>
+            <tr><td>Image embeddings</td><td>Image similarity/search</td></tr>
+            <tr><td>Audio embeddings</td><td>Speech/audio search</td></tr>
+            <tr><td>Video embeddings</td><td>Video understanding/search</td></tr>
+            <tr><td>Code embeddings</td><td>Source-code search</td></tr>
+            <tr><td>Multimodal embeddings</td><td>Text + images + other modalities</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>For RAG, the most common is: <strong>text embedding</strong>.</p>
+      <p>Examples of embedding model families include:</p>
+      <ul class="tags">
+        <li>OpenAI embeddings</li><li>Cohere Embed</li><li>Google embedding models</li><li>Voyage AI embeddings</li>
+        <li>BGE embeddings</li><li>E5 embeddings</li><li>Sentence Transformers</li><li>Jina embeddings</li><li>Nomic embeddings</li>
+      </ul>
+    </section>
+
+    <!-- 7 -->
+    <section id="free-vs-paid">
+      <h2><span class="num">7</span>Free vs paid embeddings</h2>
+      <p>There are broadly two ways to use embedding models.</p>
+
+      <h3>Paid API embeddings</h3>
+      <p>You call a hosted API. Examples include providers such as:</p>
+      <ul class="tags">
+        <li>OpenAI</li><li>Cohere</li><li>Google</li><li>Voyage AI</li><li>Jina AI</li>
+      </ul>
+      <p>The flow is:</p>
+      <ol class="flow" aria-label="Paid API flow">
+        <li><span class="chip">Your text</span></li>
+        <li><span class="chip">Embedding API</span></li>
+        <li><span class="chip r">Vector</span></li>
+      </ol>
+      <p>You generally pay according to usage.</p>
+      <h4>Advantages</h4>
+      <ul>
+        <li>Easy setup</li>
+        <li>No GPU required</li>
+        <li>Managed infrastructure</li>
+        <li>Good performance</li>
+        <li>Easy scaling</li>
+      </ul>
+
+      <h3>Free/open-source embeddings</h3>
+      <p>You can run models yourself. Popular model families include:</p>
+      <ul class="tags">
+        <li>BGE</li><li>E5</li><li>Sentence Transformers</li><li>Nomic</li><li>GTE</li><li>Jina open models</li>
+      </ul>
+      <p>For example, Python developers often use:</p>
+<pre><code><span class="cm"># Python</span>
+from sentence_transformers import SentenceTransformer
+
+model = SentenceTransformer("all-MiniLM-L6-v2")</code></pre>
+      <h4>Advantages</h4>
+      <ul>
+        <li>No per-request API cost</li>
+        <li>Can run locally</li>
+        <li>Better data privacy</li>
+        <li>Useful for experimentation</li>
+      </ul>
+      <p>But there may still be infrastructure costs if you run them on cloud GPUs/CPUs.</p>
+      <p>So open-source doesn't necessarily mean zero operational cost.</p>
+    </section>
+
+    <!-- 8 -->
+    <section id="vector-db">
+      <h2><span class="num">8</span>What is a Vector Database?</h2>
+      <p>A vector database stores embeddings and searches them efficiently.</p>
+      <p>Traditional databases primarily search things like:</p>
+<pre><code>ID = 105
+name = "John"
+status = "failed"</code></pre>
+      <p>A vector database can instead search by semantic similarity.</p>
+
+      <h3>Example</h3>
+      <p>Stored vectors:</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Document</th><th>Text</th><th>Vector</th></tr></thead>
+          <tbody>
+            <tr><td>Document 1</td><td>“Login failure troubleshooting”</td><td><code>[0.22, 0.77, ...]</code></td></tr>
+            <tr><td>Document 2</td><td>“Payment API testing”</td><td><code>[0.81, 0.13, ...]</code></td></tr>
+            <tr><td>Document 3</td><td>“Authentication regression testing”</td><td><code>[0.25, 0.72, ...]</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Question:</p>
+      <blockquote class="ask"><p>“How do I test login problems?”</p></blockquote>
+      <p>gets converted into a vector.</p>
+      <p>The vector database then finds the vectors nearest to the question vector.</p>
+      <p>This is commonly called: <strong>Similarity Search</strong> or <strong>Nearest Neighbor Search</strong>.</p>
+    </section>
+
+    <!-- 9 -->
+    <section id="stored">
+      <h2><span class="num">9</span>What normally gets stored in a vector database?</h2>
+      <p>Usually something like:</p>
+      <ol class="flow" aria-label="Stored record">
+        <li><span class="chip r">Vector</span></li>
+        <li><span class="chip">Original text</span></li>
+        <li><span class="chip">Metadata</span></li>
+      </ol>
+      <p>Example:</p>
+<pre><code>{
+  "id": "TC_LOGIN_001",
+  "text": "Verify login with invalid password",
+  "vector": [0.23, 0.65, 0.91],
+  "metadata": {
+    "module": "login",
+    "type": "negative",
+    "priority": "high"
+  }
+}</code></pre>
+      <p>Metadata lets you apply filters. For example:</p>
+<pre><code>module = login
+priority = high</code></pre>
+      <p>before or during semantic retrieval.</p>
+    </section>
+
+    <!-- 10 -->
+    <section id="db-types">
+      <h2><span class="num">10</span>Types of vector databases</h2>
+      <p>Again, there isn't one fixed number of types.</p>
+      <p>A useful way to classify them is:</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Type</th><th>Example use</th></tr></thead>
+          <tbody>
+            <tr><td>Dedicated vector database</td><td>Production RAG/search</td></tr>
+            <tr><td>Traditional DB with vector extension</td><td>Existing database + AI</td></tr>
+            <tr><td>Search engine with vector search</td><td>Hybrid keyword + vector search</td></tr>
+            <tr><td>Local/in-memory vector store</td><td>Development/testing</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>Examples include:</p>
+      <ul class="tags">
+        <li>Pinecone</li><li>Qdrant</li><li>Weaviate</li><li>Milvus</li><li>Chroma</li><li>FAISS</li>
+        <li>PostgreSQL + pgvector</li><li>Elasticsearch</li><li>OpenSearch</li>
+        <li>MongoDB Vector Search</li><li>Redis Vector Search</li><li>Azure AI Search</li>
+      </ul>
+    </section>
+
+    <!-- 11 -->
+    <section id="open-source-db">
+      <h2><span class="num">11</span>Free/open-source vector databases</h2>
+      <p>Common free or open-source choices include:</p>
+      <ul class="tags">
+        <li>FAISS</li><li>Chroma</li><li>Qdrant</li><li>Weaviate</li><li>Milvus</li><li>pgvector</li><li>OpenSearch</li>
+      </ul>
+      <p>A beginner RAG application commonly looks like:</p>
+      <ol class="flow" aria-label="Beginner stack 1">
+        <li><span class="chip">Python</span></li>
+        <li><span class="chip">Sentence Transformers</span></li>
+        <li><span class="chip">Chroma</span></li>
+      </ol>
+      <p>or:</p>
+      <ol class="flow" aria-label="Beginner stack 2">
+        <li><span class="chip">Python</span></li>
+        <li><span class="chip">OpenAI embeddings</span></li>
+        <li><span class="chip">Qdrant</span></li>
+      </ol>
+    </section>
+
+    <!-- 12 -->
+    <section id="managed-db">
+      <h2><span class="num">12</span>Paid/managed vector databases</h2>
+      <p>Many products also provide managed cloud offerings.</p>
+      <p>Examples include:</p>
+      <ul class="tags">
+        <li>Pinecone</li><li>Qdrant Cloud</li><li>Weaviate Cloud</li><li>Zilliz Cloud</li>
+        <li>MongoDB Atlas Vector Search</li><li>Elastic Cloud</li><li>Azure AI Search</li>
+      </ul>
+      <p>They typically handle things such as:</p>
+      <ul class="tags">
+        <li>Infrastructure</li><li>Scaling</li><li>Backups</li><li>Replication</li><li>Monitoring</li><li>Security</li><li>High availability</li>
+      </ul>
+      <p>Many have some combination of free trial, free tier, usage-based pricing, and paid production plans, so the exact free/paid boundary can change over time.</p>
+    </section>
+
+    <!-- 13 -->
+    <section id="architecture">
+      <h2><span class="num">13</span>Complete RAG architecture</h2>
+      <p>Here is the whole idea together.</p>
+
+      <div class="lanes">
+        <div class="lane ingest">
+          <h3>Ingestion</h3>
+          <p class="sub">PDF / Website / Jira / Test Cases</p>
+          <ol class="vflow">
+            <li>Document Loader</li>
+            <li>Text Cleaning</li>
+            <li>Chunking</li>
+            <li>Embedding Model</li>
+            <li class="end">Vector Database</li>
+          </ol>
+        </div>
+
+        <div class="lane query">
+          <h3>Query</h3>
+          <p class="sub">User Question: “How should login lockout be tested?”</p>
+          <ol class="vflow">
+            <li>Embedding Model</li>
+            <li>Question Vector</li>
+            <li>Vector Database</li>
+            <li class="r">Retrieval<small>Relevant Documents</small></li>
+            <li class="a">Augmentation<small>Question + Retrieved Context</small></li>
+            <li>LLM</li>
+            <li class="g">Generation</li>
+            <li class="end">Final RAG Answer</li>
+          </ol>
+        </div>
+      </div>
+
+      <h3>RAG for a QA/Test Analyst</h3>
+      <p>For a QA/Test Analyst, you could build a RAG system over:</p>
+      <ul class="tags">
+        <li>Requirements</li><li>User stories</li><li>Test cases</li><li>Automation code</li>
+        <li>API documentation</li><li>Jira bugs</li><li>Production incidents</li>
+        <li>Regression documentation</li><li>Release notes</li>
+      </ul>
+      <p>Then ask questions such as:</p>
+      <ul>
+        <li>“Generate negative test scenarios for this feature using our previous defects.”</li>
+        <li>“Which previous production bugs are related to this API?”</li>
+        <li>“What regression tests are relevant for this user story?”</li>
+        <li>“Find similar defects reported during previous releases.”</li>
+      </ul>
+      <p>That is where RAG becomes very useful in QA.</p>
+    </section>
+
+    <!-- Recap -->
+    <section id="recap">
+      <h2>Quick recap</h2>
+      <p>A simple way to remember everything is:</p>
+      <ul class="recap">
+        <li><strong>Ingestion</strong><span>Prepare knowledge.</span></li>
+        <li><strong>Embedding</strong><span>Convert meaning into numbers.</span></li>
+        <li><strong>Vector DB</strong><span>Store/search those numbers.</span></li>
+        <li><strong class="r">Retrieval</strong><span>Find relevant knowledge.</span></li>
+        <li><strong class="a">Augmentation</strong><span>Give that knowledge to the LLM.</span></li>
+        <li><strong class="g">Generation</strong><span>Produce the final answer.</span></li>
+      </ul>
+    </section>
+
+  </main>
+</div>
+
+<script>
+  // Highlight the current section in the contents list
+  (function () {
+    var links = Array.prototype.slice.call(document.querySelectorAll('nav.toc a'));
+    var map = {};
+    links.forEach(function (a) { map[a.getAttribute('href').slice(1)] = a; });
+    var sections = links.map(function (a) { return document.getElementById(a.getAttribute('href').slice(1)); }).filter(Boolean);
+    if (!('IntersectionObserver' in window)) return;
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) {
+          links.forEach(function (a) { a.removeAttribute('aria-current'); });
+          map[e.target.id].setAttribute('aria-current', 'true');
+        }
+      });
+    }, { rootMargin: '0px 0px -70% 0px', threshold: 0 });
+    sections.forEach(function (s) { io.observe(s); });
+  })();
+</script>
+</body>
+</html>
